@@ -30,7 +30,7 @@ class PiCameraController:
         self._create_photos_dir()
         
         # Initialize GPIO
-        self._setup_gpio()
+        # self._setup_gpio()
         
         # Initialize camera
         self._initialize_camera()
@@ -41,24 +41,24 @@ class PiCameraController:
             os.makedirs(self.photos_dir)
             print(f"Created {self.photos_dir} directory")
     
-    def _setup_gpio(self):
-        """Setup GPIO for button input"""
-        try:
-            GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
-            GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    # def _setup_gpio(self):
+    #     """Setup GPIO for button input"""
+    #     try:
+    #         GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
+    #         GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             
-            # Add button press detection with debouncing
-            GPIO.add_event_detect(
-                self.button_pin, 
-                GPIO.FALLING, 
-                callback=self._button_pressed, 
-                bouncetime=300  # 300ms debounce
-            )
-            print(f"GPIO button setup complete on pin {self.button_pin}")
+    #         # Add button press detection with debouncing
+    #         GPIO.add_event_detect(
+    #             self.button_pin, 
+    #             GPIO.FALLING, 
+    #             callback=self._button_pressed, 
+    #             bouncetime=300  # 300ms debounce
+    #         )
+    #         print(f"GPIO button setup complete on pin {self.button_pin}")
             
-        except Exception as e:
-            print(f"Error setting up GPIO: {e}")
-            print("Button functionality will not be available")
+    #     except Exception as e:
+    #         print(f"Error setting up GPIO: {e}")
+    #         print("Button functionality will not be available")
     
     def _initialize_camera(self):
         """Initialize the camera with configurations"""
@@ -83,16 +83,16 @@ class PiCameraController:
             print(f"Error initializing camera: {e}")
             raise
     
-    def _button_pressed(self, channel):
-        """
-        Callback function for button press
+    # def _button_pressed(self, channel):
+    #     """
+    #     Callback function for button press
         
-        Args:
-            channel: GPIO channel that triggered the callback
-        """
-        if self.is_running:
-            print("Button pressed - capturing photo!")
-            self.capture_photo()
+    #     Args:
+    #         channel: GPIO channel that triggered the callback
+    #     """
+    #     if self.is_running:
+    #         print("Button pressed - capturing photo!")
+    #         self.capture_photo()
     
     def start_preview(self):
         """Start the camera preview"""
@@ -217,7 +217,7 @@ class PiCameraController:
         print(f"\nCamera Preview Controls:")
         print("Press 'c' + Enter to capture a photo")
         print("Press 'q' + Enter to quit")
-        print(f"OR press the hardware button on GPIO {self.button_pin}")
+        # print(f"OR press the hardware button on GPIO {self.button_pin}")
         print("-" * 40)
         
         try:
@@ -254,7 +254,7 @@ class PiCameraController:
             if self.picam2:
                 self.picam2.close()
             
-            GPIO.cleanup()
+            # GPIO.cleanup()
             print("Cleanup completed successfully")
             
         except Exception as e:
