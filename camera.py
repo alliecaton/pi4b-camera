@@ -76,7 +76,7 @@ class PiCameraController:
             self.picam2 = Picamera2()
             
             # Preview configuration
-            self.preview_config = self.picam2.create_preview_configuration(
+            self.main_config = self.picam2.create_preview_configuration(
                 main={"size": self.preview_size},
                 lores={"size": (640, 480), "format": "YUV420"}
             )
@@ -178,7 +178,7 @@ class PiCameraController:
                 print("Returning to preview mode...")
                 self.picam2.stop_preview()
                 self.picam2.stop()
-                self.picam2.configure(self.preview_config)
+                self.picam2.configure(self.main_config)
                 self.picam2.start_preview(Preview.QTGL)
                 self.picam2.start()
             
