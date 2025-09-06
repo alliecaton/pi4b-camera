@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
+"""
+Raspberry Pi HQ Camera Control Class
+Provides camera preview and photo capture functionality with GPIO button support
+"""
+
 import time
 import os
+import threading
 from datetime import datetime
 from picamera2 import Picamera2, Preview
 import RPi.GPIO as GPIO
 
 
 class PiCameraController:
+    """
+    Raspberry Pi Camera Controller with GPIO button support
+    """
+    
     def __init__(self, button_pin=0, preview_size=(1640, 1232), still_size=(4056, 3040)):
         """
         Initialize the camera controller
@@ -30,7 +40,7 @@ class PiCameraController:
         self._create_photos_dir()
         
         # Initialize GPIO
-        # self._setup_gpio()
+        self._setup_gpio()
         
         # Initialize camera
         self._initialize_camera()
@@ -41,24 +51,24 @@ class PiCameraController:
             os.makedirs(self.photos_dir)
             print(f"Created {self.photos_dir} directory")
     
-    # def _setup_gpio(self):
-    #     """Setup GPIO for button input"""
-    #     try:
-    #         GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
-    #         GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    def _setup_gpio(self):
+        """Setup GPIO for button input"""
+        try:
+            GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
+            GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             
-    #         # Add button press detection with debouncing
-    #         GPIO.add_event_detect(
-    #             self.button_pin, 
-    #             GPIO.FALLING, 
-    #             callback=self._button_pressed, 
-    #             bouncetime=300  # 300ms debounce
-    #         )
-    #         print(f"GPIO button setup complete on pin {self.button_pin}")
+            # Add button press detection with debouncing
+            GPIO.add_event_detect(
+                self.button_pin, 
+                GPIO.FALLING, 
+                callback=self._button_pressed, 
+                bouncetime=300  # 300ms debounce
+            )
+            print(f"GPIO button setup complete on pin {self.button_pin}")
             
-    #     except Exception as e:
-    #         print(f"Error setting up GPIO: {e}")
-    #         print("Button functionality will not be available")
+        except Exception as e:
+            print(f"Error setting up GPIO: {e}")
+            print("Button functionality will not be available")
     
     def _initialize_camera(self):
         """Initialize the camera with configurations"""
@@ -83,23 +93,23 @@ class PiCameraController:
             print(f"Error initializing camera: {e}")
             raise
     
-    # def _button_pressed(self, channel):
-    #     """
-    #     Callback function for button press
+    def _button_pressed(self, channel):
+        """
+        Callback function for button press
         
-    #     Args:
-    #         channel: GPIO channel that triggered the callback
-    #     """
-    #     if self.is_running:
-    #         print("Button pressed - capturing photo!")
-    #         self.capture_photo()
+        Args:
+            channel: GPIO channel that triggered the callback
+        """
+        if self.is_running:
+            print("Button pressed - capturing photo!")
+            self.capture_photo()
     
     def start_preview(self):
         """Start the camera preview"""
         try:
             if not self.preview_active:
                 print("Starting camera preview...")
-                self.picam2.configure(self.preview_config)
+                self.picam2.configure(self.main_config)
                 self.picam2.start_preview(Preview.QTGL)
                 self.picam2.start()
                 self.preview_active = True
@@ -185,7 +195,22 @@ class PiCameraController:
         except Exception as e:
             print(f"Error capturing photo: {e}")
             return None
-  
+    
+    def apply_post_processing(self, image_path):
+        """
+        Apply post-processing effects to an image
+        Placeholder for future implementation
+        
+        Args:
+            image_path (str): Path to the image file
+            
+        Returns:
+            str: Path to processed image, or None if failed
+        """
+        # TODO: Implement grain, filters, and other effects
+        print(f"Post-processing placeholder for: {image_path}")
+        print("Future: Add grain, filters, vintage effects, etc.")
+        return image_path
     
     def get_camera_info(self):
         """
@@ -203,7 +228,11 @@ class PiCameraController:
             return None
     
     def run_interactive_mode(self):
-        # TODO: we can probably remove some of this code in the future. it's helpful for development to have all this output
+        """Run the camera in interactive command mode"""
+        print("\nCamera Interactive Mode")
+        print("=" * 25)
+        
+        # Display camera info
         camera_info = self.get_camera_info()
         if camera_info:
             print("\nCamera Information:")
@@ -217,19 +246,23 @@ class PiCameraController:
         print(f"\nCamera Preview Controls:")
         print("Press 'c' + Enter to capture a photo")
         print("Press 'q' + Enter to quit")
-        # print(f"OR press the hardware button on GPIO {self.button_pin}")
+        print("Press 's' + Enter to show camera status")
+        print(f"OR press the hardware button on GPIO {self.button_pin}")
         print("-" * 40)
         
         try:
             while self.is_running:
-                command = input("Command (c/q): ").lower().strip()
+                command = input("Command (c/s/q): ").lower().strip()
                 
                 if command == 'c':
                     filename = self.capture_photo()
                     if filename:
                         # Placeholder for post-processing
-                        # TODO: this is where we will call a post-processing function
-                        print(f"Post-processing {filename}... (not implemented)")
+                        self.apply_post_processing(filename)
+                        
+                elif command == 's':
+                    self._show_status()
+                    
                 elif command == 'q':
                     print("Quitting...")
                     self.is_running = False
@@ -241,6 +274,16 @@ class PiCameraController:
         except KeyboardInterrupt:
             print("\nShutting down...")
             self.is_running = False
+    
+    def _show_status(self):
+        """Show current camera status"""
+        print(f"Camera Status:")
+        print(f"  Preview active: {self.preview_active}")
+        print(f"  Running: {self.is_running}")
+        print(f"  Photos directory: {self.photos_dir}")
+        print(f"  Button pin: {self.button_pin}")
+        print(f"  Preview size: {self.preview_size}")
+        print(f"  Still size: {self.still_size}")
     
     def cleanup(self):
         """Clean up resources"""
@@ -254,7 +297,7 @@ class PiCameraController:
             if self.picam2:
                 self.picam2.close()
             
-            # GPIO.cleanup()
+            GPIO.cleanup()
             print("Cleanup completed successfully")
             
         except Exception as e:
@@ -266,6 +309,8 @@ def main():
     camera = None
     
     try:
+        # Initialize camera controller
+        # Change button_pin if you're using a different GPIO pin
         camera = PiCameraController(button_pin=0)
         
         # Run in interactive mode
@@ -284,4 +329,6 @@ def main():
 
 
 if __name__ == "__main__":
+    print("Raspberry Pi HQ Camera Controller (Class-Based)")
+    print("=" * 50)
     main()
