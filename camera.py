@@ -1,150 +1,287 @@
 #!/usr/bin/env python3
-"""
-Raspberry Pi HQ Camera Control Script
-Provides camera preview and photo capture functionality
-"""
-
 import time
 import os
 from datetime import datetime
 from picamera2 import Picamera2, Preview
-import cv2
+import RPi.GPIO as GPIO
 
-def main():
-    # Initialize the camera
-    picam2 = Picamera2()
-    
-    # Configure camera settings
-    # For preview, use a smaller resolution for better performance
-    preview_config = picam2.create_preview_configuration(
-        main={"size": (1640, 1232)},  # Good balance of quality and performance
-        lores={"size": (640, 480), "format": "YUV420"}
-    )
-    
-    # For still capture, use full resolution
-    still_config = picam2.create_still_configuration(
-        main={"size": (4056, 3040)},  # Full HQ camera resolution
-        buffer_count=1
-    )
-    
-    try:
-        print("Initializing camera...")
-        picam2.configure(preview_config)
+
+class PiCameraController:
+    def __init__(self, button_pin=0, preview_size=(1640, 1232), still_size=(4056, 3040)):
+        """
+        Initialize the camera controller
         
-        # Start the camera preview
-        print("Starting preview...")
-        picam2.start_preview(Preview.QTGL)  # Use Qt OpenGL preview
-        picam2.start()
+        Args:
+            button_pin (int): GPIO pin number for shutter button (default: 0)
+            preview_size (tuple): Preview resolution (width, height)
+            still_size (tuple): Still capture resolution (width, height)
+        """
+        self.button_pin = button_pin
+        self.preview_size = preview_size
+        self.still_size = still_size
+        self.photos_dir = "photos"
         
-        print("\nCamera Preview Controls:")
+        # Camera and state management
+        self.picam2 = None
+        self.is_running = False
+        self.preview_active = False
+        
+        # Create photos directory
+        self._create_photos_dir()
+        
+        # Initialize GPIO
+        self._setup_gpio()
+        
+        # Initialize camera
+        self._initialize_camera()
+    
+    def _create_photos_dir(self):
+        """Create photos directory if it doesn't exist"""
+        if not os.path.exists(self.photos_dir):
+            os.makedirs(self.photos_dir)
+            print(f"Created {self.photos_dir} directory")
+    
+    def _setup_gpio(self):
+        """Setup GPIO for button input"""
+        try:
+            GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
+            GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            
+            # Add button press detection with debouncing
+            GPIO.add_event_detect(
+                self.button_pin, 
+                GPIO.FALLING, 
+                callback=self._button_pressed, 
+                bouncetime=300  # 300ms debounce
+            )
+            print(f"GPIO button setup complete on pin {self.button_pin}")
+            
+        except Exception as e:
+            print(f"Error setting up GPIO: {e}")
+            print("Button functionality will not be available")
+    
+    def _initialize_camera(self):
+        """Initialize the camera with configurations"""
+        try:
+            self.picam2 = Picamera2()
+            
+            # Preview configuration
+            self.preview_config = self.picam2.create_preview_configuration(
+                main={"size": self.preview_size},
+                lores={"size": (640, 480), "format": "YUV420"}
+            )
+            
+            # Still capture configuration
+            self.still_config = self.picam2.create_still_configuration(
+                main={"size": self.still_size},
+                buffer_count=1
+            )
+            
+            print("Camera initialized successfully")
+            
+        except Exception as e:
+            print(f"Error initializing camera: {e}")
+            raise
+    
+    def _button_pressed(self, channel):
+        """
+        Callback function for button press
+        
+        Args:
+            channel: GPIO channel that triggered the callback
+        """
+        if self.is_running:
+            print("Button pressed - capturing photo!")
+            self.capture_photo()
+    
+    def start_preview(self):
+        """Start the camera preview"""
+        try:
+            if not self.preview_active:
+                print("Starting camera preview...")
+                self.picam2.configure(self.preview_config)
+                self.picam2.start_preview(Preview.QTGL)
+                self.picam2.start()
+                self.preview_active = True
+                self.is_running = True
+                print("Preview started successfully")
+            else:
+                print("Preview already active")
+                
+        except Exception as e:
+            print(f"Error starting preview: {e}")
+    
+    def stop_preview(self):
+        """Stop the camera preview"""
+        try:
+            if self.preview_active:
+                print("Stopping camera preview...")
+                self.picam2.stop_preview()
+                self.picam2.stop()
+                self.preview_active = False
+                print("Preview stopped")
+            else:
+                print("Preview not active")
+                
+        except Exception as e:
+            print(f"Error stopping preview: {e}")
+    
+    def capture_photo(self):
+        """
+        Capture a photo at full resolution
+        
+        Returns:
+            str: Path to captured photo file, or None if failed
+        """
+        try:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{self.photos_dir}/photo_{timestamp}.jpg"
+            
+            print(f"Capturing photo: {filename}")
+            
+            # Check if we need to switch to still configuration
+            current_config = self.picam2.camera_configuration()
+            needs_config_switch = current_config['main']['size'] != self.still_config['main']['size']
+            
+            if needs_config_switch:
+                print("Switching to high-resolution mode...")
+                was_preview_active = self.preview_active
+                
+                if self.preview_active:
+                    self.picam2.stop_preview()
+                
+                self.picam2.stop()
+                self.picam2.configure(self.still_config)
+                self.picam2.start()
+                
+                if was_preview_active:
+                    self.picam2.start_preview(Preview.QTGL)
+                
+                time.sleep(1)  # Allow camera to adjust
+            
+            # Capture the image
+            self.picam2.capture_file(filename)
+            
+            # Switch back to preview mode if needed
+            if needs_config_switch and self.preview_active:
+                print("Returning to preview mode...")
+                self.picam2.stop_preview()
+                self.picam2.stop()
+                self.picam2.configure(self.preview_config)
+                self.picam2.start_preview(Preview.QTGL)
+                self.picam2.start()
+            
+            # Get file info
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename) / (1024 * 1024)
+                print(f"Photo saved successfully: {filename}")
+                print(f"File size: {file_size:.1f} MB")
+                return filename
+            else:
+                print("Error: Photo file was not created")
+                return None
+                
+        except Exception as e:
+            print(f"Error capturing photo: {e}")
+            return None
+  
+    
+    def get_camera_info(self):
+        """
+        Get camera properties and information
+        
+        Returns:
+            dict: Camera properties
+        """
+        try:
+            if self.picam2:
+                return self.picam2.camera_properties
+            return None
+        except Exception as e:
+            print(f"Error getting camera info: {e}")
+            return None
+    
+    def run_interactive_mode(self):
+        # TODO: we can probably remove some of this code in the future. it's helpful for development to have all this output
+        camera_info = self.get_camera_info()
+        if camera_info:
+            print("\nCamera Information:")
+            print("-" * 20)
+            for key, value in camera_info.items():
+                print(f"{key}: {value}")
+        
+        # Start preview
+        self.start_preview()
+        
+        print(f"\nCamera Preview Controls:")
         print("Press 'c' + Enter to capture a photo")
         print("Press 'q' + Enter to quit")
-        print("Press 's' + Enter to switch to still mode and back")
+        print(f"OR press the hardware button on GPIO {self.button_pin}")
         print("-" * 40)
         
-        # Create photos directory if it doesn't exist
-        photos_dir = "photos"
-        if not os.path.exists(photos_dir):
-            os.makedirs(photos_dir)
-        
-        while True:
-            command = input("Command (c/s/q): ").lower().strip()
-            
-            if command == 'c':
-                # Capture photo
-                capture_photo(picam2, still_config, photos_dir)
+        try:
+            while self.is_running:
+                command = input("Command (c/q): ").lower().strip()
                 
-            elif command == 's':
-                # Switch to still configuration temporarily
-                print("Switching to still mode...")
-                picam2.stop_preview()
-                picam2.stop()
-                picam2.configure(still_config)
-                picam2.start_preview(Preview.QTGL)
-                picam2.start()
-                
-                input("Press Enter to capture or any key to return to preview mode...")
-                capture_photo(picam2, still_config, photos_dir)
-                
-                # Switch back to preview mode
-                print("Returning to preview mode...")
-                picam2.stop_preview()
-                picam2.stop()
-                picam2.configure(preview_config)
-                picam2.start_preview(Preview.QTGL)
-                picam2.start()
-                
-            elif command == 'q':
-                print("Quitting...")
-                break
-                
-            else:
-                print("Invalid command. Use 'c' to capture, 's' for still mode, 'q' to quit.")
+                if command == 'c':
+                    filename = self.capture_photo()
+                    if filename:
+                        # Placeholder for post-processing
+                        # TODO: this is where we will call a post-processing function
+                        print(f"Post-processing {filename}... (not implemented)")
+                elif command == 'q':
+                    print("Quitting...")
+                    self.is_running = False
+                    break
+                    
+                else:
+                    print("Invalid command. Use 'c' to capture, 's' for status, 'q' to quit.")
+                    
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            self.is_running = False
     
+    def cleanup(self):
+        """Clean up resources"""
+        try:
+            print("Cleaning up...")
+            self.is_running = False
+            
+            if self.preview_active:
+                self.stop_preview()
+            
+            if self.picam2:
+                self.picam2.close()
+            
+            GPIO.cleanup()
+            print("Cleanup completed successfully")
+            
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+
+
+def main():
+    """Main function to run the camera controller"""
+    camera = None
+    
+    try:
+        camera = PiCameraController(button_pin=0)
+        
+        # Run in interactive mode
+        camera.run_interactive_mode()
+        
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user")
+        
     except Exception as e:
         print(f"Error: {e}")
-    
+        
     finally:
-        # Clean up
-        try:
-            picam2.stop_preview()
-            picam2.stop()
-            picam2.close()
-            print("Camera closed successfully.")
-        except:
-            pass
+        # Always cleanup
+        if camera:
+            camera.cleanup()
 
-def capture_photo(picam2, still_config, photos_dir):
-    """Capture a photo and save it with timestamp"""
-    try:
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{photos_dir}/photo_{timestamp}.jpg"
-        
-        print(f"Capturing photo: {filename}")
-        
-        # Switch to still configuration if not already
-        current_config = picam2.camera_configuration()
-        if current_config['main']['size'] != still_config['main']['size']:
-            print("Switching to high-resolution mode for capture...")
-            picam2.stop_preview()
-            picam2.stop()
-            picam2.configure(still_config)
-            picam2.start()
-            time.sleep(2)  # Allow time for camera to adjust
-        
-        # Capture the image
-        picam2.capture_file(filename)
-        print(f"Photo saved: {filename}")
-        
-        # Get file size for confirmation
-        file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
-        print(f"File size: {file_size:.1f} MB")
-        
-    except Exception as e:
-        print(f"Error capturing photo: {e}")
-
-def check_camera_info():
-    """Display camera information"""
-    try:
-        picam2 = Picamera2()
-        print("Camera Information:")
-        print("-" * 20)
-        camera_properties = picam2.camera_properties
-        for key, value in camera_properties.items():
-            print(f"{key}: {value}")
-        picam2.close()
-    except Exception as e:
-        print(f"Error getting camera info: {e}")
 
 if __name__ == "__main__":
-    print("Raspberry Pi HQ Camera Controller")
-    print("=" * 35)
-    
-    # Optional: Display camera info
-    print("\nChecking camera...")
-    check_camera_info()
-    print()
-    
-    # Start main program
     main()
