@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 """
 Raspberry Pi HQ Camera Control Class
-Provides camera preview and photo capture functionality with GPIO button support
+Provides camera preview and photo capture functionality with gpiozero button support
 """
 
 import time
 import os
-import threading
 from datetime import datetime
 from picamera2 import Picamera2, Preview
-import RPi.GPIO as GPIO
+from gpiozero import Button
 
 
 class PiCameraController:
     """
-    Raspberry Pi Camera Controller with GPIO button support
+    Raspberry Pi Camera Controller with gpiozero button support
     """
     
-    def __init__(self, button_pin=17, preview_size=(800, 600), still_size=(2028, 1520)):
+    def __init__(self, button_pin=16, preview_size=(800, 600), still_size=(2028, 1520)):
         """
         Initialize the camera controller
         
         Args:
-            button_pin (int): GPIO pin number for shutter button (default: 17)
+            button_pin (int): GPIO pin number for shutter button (default: 16)
             preview_size (tuple): Preview resolution (width, height) - lower for power efficiency
             still_size (tuple): Still capture resolution (width, height) - higher quality
         """
@@ -39,8 +38,8 @@ class PiCameraController:
         # Create photos directory
         self._create_photos_dir()
         
-        # Initialize GPIO
-        self._setup_gpio()
+        # Initialize button
+        self._setup_button()
         
         # Initialize camera
         self._initialize_camera()
@@ -51,26 +50,15 @@ class PiCameraController:
             os.makedirs(self.photos_dir)
             print(f"Created {self.photos_dir} directory")
     
-    def _setup_gpio(self):
-        """Setup GPIO for button input"""
+    def _setup_button(self):
+        """Setup button with gpiozero"""
         try:
-            GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
-            GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            
-            print(f"GPIO pin {self.button_pin} initial state: {GPIO.input(self.button_pin)}")
-            
-            # Add button press detection with debouncing
-            GPIO.add_event_detect(
-                self.button_pin, 
-                GPIO.FALLING, 
-                callback=self._button_pressed, 
-                bouncetime=300  # 300ms debounce
-            )
-            print(f"GPIO button setup complete on pin {self.button_pin}")
-            print("Waiting for button presses...")
+            self.button = Button(self.button_pin, pull_up=True)
+            self.button.when_pressed = self._on_button_pressed
+            print(f"Button setup complete on pin {self.button_pin}")
             
         except Exception as e:
-            print(f"Error setting up GPIO: {e}")
+            print(f"Error setting up button: {e}")
             print("Button functionality will not be available")
     
     def _initialize_camera(self):
@@ -98,19 +86,11 @@ class PiCameraController:
             print(f"Error initializing camera: {e}")
             raise
     
-    def _button_pressed(self, channel):
-        """
-        Callback function for button press
-        
-        Args:
-            channel: GPIO channel that triggered the callback
-        """
-        print(f"DEBUG: Button callback triggered on channel {channel}")
+    def _on_button_pressed(self):
+        """Callback function for button press"""
         if self.is_running:
             print("Button pressed - capturing photo!")
             self.capture_photo()
-        else:
-            print("DEBUG: is_running is False, not capturing")
     
     def start_preview(self):
         """Start the camera preview"""
@@ -222,7 +202,9 @@ class PiCameraController:
             if self.picam2:
                 self.picam2.close()
             
-            GPIO.cleanup()
+            if hasattr(self, 'button'):
+                self.button.close()
+            
             print("Cleanup completed successfully")
             
         except Exception as e:
@@ -238,7 +220,7 @@ def main():
         # Preview: 800x600 for low power on 3.5" display
         # Still capture: 2028x1520 for higher quality photos
         camera = PiCameraController(
-            button_pin=17,
+            button_pin=16,
             preview_size=(800, 600),
             still_size=(2028, 1520)
         )
