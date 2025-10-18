@@ -17,14 +17,14 @@ class PiCameraController:
     Raspberry Pi Camera Controller with GPIO button support
     """
     
-    def __init__(self, button_pin=0, preview_size=(1640, 1232), still_size=(4056, 3040)):
+    def __init__(self, button_pin=17, preview_size=(800, 600), still_size=(2028, 1520)):
         """
         Initialize the camera controller
         
         Args:
-            button_pin (int): GPIO pin number for shutter button (default: 0)
-            preview_size (tuple): Preview resolution (width, height)
-            still_size (tuple): Still capture resolution (width, height)
+            button_pin (int): GPIO pin number for shutter button (default: 17)
+            preview_size (tuple): Preview resolution (width, height) - lower for power efficiency
+            still_size (tuple): Still capture resolution (width, height) - higher quality
         """
         self.button_pin = button_pin
         self.preview_size = preview_size
@@ -75,13 +75,21 @@ class PiCameraController:
         try:
             self.picam2 = Picamera2()
             
-            # Preview configuration
+            # Preview configuration - low resolution for power efficiency
             self.preview_config = self.picam2.create_preview_configuration(
                 main={"size": self.preview_size},
                 lores={"size": (640, 480), "format": "YUV420"}
             )
             
+            # Still capture configuration - higher resolution for quality photos
+            self.still_config = self.picam2.create_still_configuration(
+                main={"size": self.still_size},
+                lores={"size": (640, 480), "format": "YUV420"}
+            )
+            
             print("Camera initialized successfully")
+            print(f"Preview resolution: {self.preview_size}")
+            print(f"Still capture resolution: {self.still_size}")
             
         except Exception as e:
             print(f"Error initializing camera: {e}")
@@ -119,11 +127,9 @@ class PiCameraController:
         """Stop the camera preview"""
         try:
             if self.preview_active:
-                print("Stopping camera preview...")
                 self.picam2.stop_preview()
                 self.picam2.stop()
                 self.preview_active = False
-                print("Preview stopped")
             else:
                 print("Preview not active")
                 
@@ -132,7 +138,7 @@ class PiCameraController:
     
     def capture_photo(self):
         """
-        Capture a photo at current preview resolution
+        Capture a photo at still capture resolution (higher quality than preview)
         
         Returns:
             str: Path to captured photo file, or None if failed
@@ -142,19 +148,14 @@ class PiCameraController:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{self.photos_dir}/photo_{timestamp}.jpg"
             
-            print(f"Capturing photo: {filename}")
-            
-            # Simple capture without configuration switching to avoid event loop issues
-            self.picam2.capture_file(filename)
+            # Switch to still configuration for higher resolution capture
+            self.picam2.switch_mode_and_capture_file(self.still_config, filename)
             
             # Get file info
             if os.path.exists(filename):
-                file_size = os.path.getsize(filename) / (1024 * 1024)
-                print(f"Photo saved successfully: {filename}")
-                print(f"File size: {file_size:.1f} MB")
+                print(f"Photo captured at {self.still_size} resolution: {filename}")
                 return filename
             else:
-                print("Error: Photo file was not created")
                 return None
                 
         except Exception as e:
@@ -177,78 +178,17 @@ class PiCameraController:
         print("Future: Add grain, filters, vintage effects, etc.")
         return image_path
     
-    def get_camera_info(self):
-        """
-        Get camera properties and information
-        
-        Returns:
-            dict: Camera properties
-        """
-        try:
-            if self.picam2:
-                return self.picam2.camera_properties
-            return None
-        except Exception as e:
-            print(f"Error getting camera info: {e}")
-            return None
     
-    def run_interactive_mode(self):
-        """Run the camera in interactive command mode"""
-        print("\nCamera Interactive Mode")
-        print("=" * 25)
-        
-        # Display camera info
-        camera_info = self.get_camera_info()
-        if camera_info:
-            print("\nCamera Information:")
-            print("-" * 20)
-            for key, value in camera_info.items():
-                print(f"{key}: {value}")
-        
-        # Start preview
+    def run(self):
+        """Start the camera preview and keep it running"""
         self.start_preview()
         
-        print(f"\nCamera Preview Controls:")
-        print("Press 'c' + Enter to capture a photo")
-        print("Press 'q' + Enter to quit")
-        print("Press 's' + Enter to show camera status")
-        print(f"OR press the hardware button on GPIO {self.button_pin}")
-        print("-" * 40)
-        
         try:
+            print("Camera running. Press Ctrl+C to exit.")
             while self.is_running:
-                command = input("Command (c/s/q): ").lower().strip()
-                
-                if command == 'c':
-                    filename = self.capture_photo()
-                    if filename:
-                        # Placeholder for post-processing
-                        self.apply_post_processing(filename)
-                        
-                elif command == 's':
-                    self._show_status()
-                    
-                elif command == 'q':
-                    print("Quitting...")
-                    self.is_running = False
-                    break
-                    
-                else:
-                    print("Invalid command. Use 'c' to capture, 's' for status, 'q' to quit.")
-                    
+                time.sleep(0.1)
         except KeyboardInterrupt:
-            print("\nShutting down...")
             self.is_running = False
-    
-    def _show_status(self):
-        """Show current camera status"""
-        print(f"Camera Status:")
-        print(f"  Preview active: {self.preview_active}")
-        print(f"  Running: {self.is_running}")
-        print(f"  Photos directory: {self.photos_dir}")
-        print(f"  Button pin: {self.button_pin}")
-        print(f"  Preview size: {self.preview_size}")
-        print(f"  Still size: {self.still_size}")
     
     def cleanup(self):
         """Clean up resources"""
@@ -274,12 +214,17 @@ def main():
     camera = None
     
     try:
-        # Initialize camera controller
-        # Change button_pin if you're using a different GPIO pin
-        camera = PiCameraController(button_pin=0)
+        # Initialize camera controller with optimized resolutions
+        # Preview: 800x600 for low power on 3.5" display
+        # Still capture: 2028x1520 for higher quality photos
+        camera = PiCameraController(
+            button_pin=16,
+            preview_size=(800, 600),
+            still_size=(2028, 1520)
+        )
         
-        # Run in interactive mode
-        camera.run_interactive_mode()
+        # Run camera
+        camera.run()
         
     except KeyboardInterrupt:
         print("\nProgram interrupted by user")
@@ -288,12 +233,9 @@ def main():
         print(f"Error: {e}")
         
     finally:
-        # Always cleanup
         if camera:
             camera.cleanup()
 
 
 if __name__ == "__main__":
-    print("Raspberry Pi HQ Camera Controller (Class-Based)")
-    print("=" * 50)
     main()
